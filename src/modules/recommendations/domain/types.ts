@@ -32,3 +32,22 @@ export type ScoreResult<TDetails extends Record<string, unknown> = Record<string
   maxScore: number;
   details: TDetails;
 };
+
+/** Per-dimension contribution returned by ScoringEngine. */
+export type DimensionScore = {
+  score: number;
+  maxScore: number;
+  details: Record<string, unknown>;
+};
+
+export type EngineScoreBreakdown = {
+  skills: DimensionScore;
+  experience: DimensionScore;
+  location: DimensionScore;
+  salary: DimensionScore;
+};
+
+export type EngineScoreResult = {
+  score: number;
+  breakdown: EngineScoreBreakdown;
+};

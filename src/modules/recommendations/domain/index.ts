@@ -5,6 +5,9 @@ export type {
   ScoringCandidate,
   ScoringJob,
   ScoringJobSkill,
+  DimensionScore,
+  EngineScoreBreakdown,
+  EngineScoreResult,
 } from './types.js';
 export { EligibilityChecker } from './eligibility-checker.js';
 export { ScoringEngine } from './scoring-engine.js';
