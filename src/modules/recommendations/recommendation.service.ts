@@ -26,18 +26,38 @@ export class CandidateNotFoundError extends AppError {
   }
 }
 
-export type RecommendationResult = {
+export class JobNotFoundError extends AppError {
+  readonly jobId: string;
+
+  constructor(jobId: string) {
+    super(ErrorCode.JOB_NOT_FOUND, `Job not found: ${jobId}`, 404, { jobId });
+    this.name = 'JobNotFoundError';
+    this.jobId = jobId;
+  }
+}
+
+/** Job ranked for a candidate (GET /candidates/:id/recommendations). */
+export type JobRecommendationResult = {
   jobId: string;
   title: string;
   score: number;
   breakdown: EngineScoreBreakdown;
 };
 
+/** Candidate ranked for a job (GET /jobs/:id/recommendations). */
+export type CandidateRecommendationResult = {
+  candidateId: string;
+  name: string;
+  score: number;
+  breakdown: EngineScoreBreakdown;
+};
+
+/** @deprecated Use JobRecommendationResult */
+export type RecommendationResult = JobRecommendationResult;
+
 /**
- * Recommendation orchestration:
- * load candidate/jobs → EligibilityChecker → ScoringEngine → ranked results.
- *
- * Depends on repositories and domain collaborators via constructor injection.
+ * Recommendation orchestration for both directions.
+ * Always scores with EligibilityChecker + ScoringEngine (candidate, job).
  * Does not call Prisma or embed scoring formulas.
  */
 export class RecommendationService {
@@ -51,7 +71,7 @@ export class RecommendationService {
   async recommendForCandidate(
     candidateId: string,
     limit: number,
-  ): Promise<RecommendationResult[]> {
+  ): Promise<JobRecommendationResult[]> {
     const candidate = await this.candidateRepository.findById(candidateId);
     if (!candidate) {
       throw new CandidateNotFoundError(candidateId);
@@ -59,28 +79,69 @@ export class RecommendationService {
 
     const jobs = await this.jobRepository.findAll();
     const scoringCandidate = toScoringCandidate(candidate);
-
-    const recommendations: RecommendationResult[] = [];
+    const recommendations: JobRecommendationResult[] = [];
 
     for (const job of jobs) {
-      const scoringJob = toScoringJob(job);
-      if (!this.eligibilityChecker.isEligible(scoringCandidate, scoringJob)) {
+      const scored = this.scorePair(scoringCandidate, job);
+      if (!scored) {
         continue;
       }
 
-      const { score, breakdown } = this.scoringEngine.score(scoringCandidate, scoringJob);
       recommendations.push({
         jobId: job.id,
         title: job.title,
-        score,
-        breakdown,
+        score: scored.score,
+        breakdown: scored.breakdown,
       });
     }
 
-    recommendations.sort(compareRecommendations);
+    return rankAndLimit(recommendations, limit, (item) => item.jobId);
+  }
 
-    const safeLimit = Math.max(0, limit);
-    return recommendations.slice(0, safeLimit);
+  async recommendForJob(
+    jobId: string,
+    limit: number,
+  ): Promise<CandidateRecommendationResult[]> {
+    const job = await this.jobRepository.findById(jobId);
+    if (!job) {
+      throw new JobNotFoundError(jobId);
+    }
+
+    const candidates = await this.candidateRepository.findAll();
+    const scoringJob = toScoringJob(job);
+    const recommendations: CandidateRecommendationResult[] = [];
+
+    for (const candidate of candidates) {
+      const scored = this.scorePair(toScoringCandidate(candidate), job, scoringJob);
+      if (!scored) {
+        continue;
+      }
+
+      recommendations.push({
+        candidateId: candidate.id,
+        name: candidate.name,
+        score: scored.score,
+        breakdown: scored.breakdown,
+      });
+    }
+
+    return rankAndLimit(recommendations, limit, (item) => item.candidateId);
+  }
+
+  /**
+   * Shared eligibility + scoring path for both directions.
+   * Optional precomputed ScoringJob avoids remapping in reverse loop callers.
+   */
+  private scorePair(
+    scoringCandidate: ScoringCandidate,
+    job: JobWithSkills,
+    scoringJob: ScoringJob = toScoringJob(job),
+  ): { score: number; breakdown: EngineScoreBreakdown } | null {
+    if (!this.eligibilityChecker.isEligible(scoringCandidate, scoringJob)) {
+      return null;
+    }
+
+    return this.scoringEngine.score(scoringCandidate, scoringJob);
   }
 }
 
@@ -108,11 +169,21 @@ function toScoringJob(job: JobWithSkills): ScoringJob {
 }
 
 /**
- * Descending by score; ties broken by jobId ascending for stable, deterministic order.
+ * Descending by score; ties broken by stable id ascending.
  */
-function compareRecommendations(a: RecommendationResult, b: RecommendationResult): number {
-  if (a.score !== b.score) {
-    return b.score - a.score;
-  }
-  return a.jobId < b.jobId ? -1 : a.jobId > b.jobId ? 1 : 0;
+function rankAndLimit<T extends { score: number }>(
+  items: T[],
+  limit: number,
+  tieBreakId: (item: T) => string,
+): T[] {
+  items.sort((a, b) => {
+    if (a.score !== b.score) {
+      return b.score - a.score;
+    }
+    const aId = tieBreakId(a);
+    const bId = tieBreakId(b);
+    return aId < bId ? -1 : aId > bId ? 1 : 0;
+  });
+
+  return items.slice(0, Math.max(0, limit));
 }

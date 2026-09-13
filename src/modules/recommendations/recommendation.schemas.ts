@@ -13,4 +13,8 @@ export const candidateIdParamSchema = z.object({
   candidateId: z.string().uuid('candidateId must be a valid UUID'),
 });
 
+export const jobIdParamSchema = z.object({
+  jobId: z.string().uuid('jobId must be a valid UUID'),
+});
+
 export type RecommendationsQuery = z.infer<typeof recommendationsQuerySchema>;

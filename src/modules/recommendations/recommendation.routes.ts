@@ -17,22 +17,7 @@ export type RecommendationRouterOptions = {
   recommendationService?: RecommendationService;
 };
 
-/**
- * Composes recommendation dependencies (DI via constructor injection).
- */
-export function createRecommendationRouter(
-  options: RecommendationRouterOptions = {},
-): Router {
-  const service = options.recommendationService ?? createDefaultRecommendationService();
-  const controller = new RecommendationController(service);
-
-  const router = Router({ mergeParams: true });
-  router.get('/', controller.getForCandidate);
-
-  return router;
-}
-
-function createDefaultRecommendationService(): RecommendationService {
+export function createRecommendationService(): RecommendationService {
   const prisma = getPrismaClient();
   const candidateRepository = new CandidateRepository(prisma);
   const jobRepository = new JobRepository(prisma);
@@ -50,4 +35,38 @@ function createDefaultRecommendationService(): RecommendationService {
     eligibilityChecker,
     scoringEngine,
   );
+}
+
+/**
+ * GET /candidates/:candidateId/recommendations
+ */
+export function createCandidateRecommendationRouter(
+  recommendationService: RecommendationService,
+): Router {
+  const controller = new RecommendationController(recommendationService);
+  const router = Router({ mergeParams: true });
+  router.get('/', controller.getForCandidate);
+  return router;
+}
+
+/**
+ * GET /jobs/:jobId/recommendations
+ */
+export function createJobRecommendationRouter(
+  recommendationService: RecommendationService,
+): Router {
+  const controller = new RecommendationController(recommendationService);
+  const router = Router({ mergeParams: true });
+  router.get('/', controller.getForJob);
+  return router;
+}
+
+/**
+ * @deprecated Prefer createCandidateRecommendationRouter with an injected service.
+ */
+export function createRecommendationRouter(
+  options: RecommendationRouterOptions = {},
+): Router {
+  const service = options.recommendationService ?? createRecommendationService();
+  return createCandidateRecommendationRouter(service);
 }

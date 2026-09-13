@@ -20,6 +20,13 @@ export class CandidateRepository {
     });
   }
 
+  async findAll(): Promise<CandidateWithSkills[]> {
+    return this.prisma.candidate.findMany({
+      include: { skills: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async create(data: CreateCandidateData): Promise<CandidateWithSkills> {
     return this.prisma.candidate.create({
       data: {

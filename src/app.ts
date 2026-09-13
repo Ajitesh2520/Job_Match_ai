@@ -4,7 +4,9 @@ import { createCandidateRouter } from './modules/candidates/index.js';
 import { healthRouter } from './modules/health/index.js';
 import { createJobRouter } from './modules/jobs/index.js';
 import {
-  createRecommendationRouter,
+  createCandidateRecommendationRouter,
+  createJobRecommendationRouter,
+  createRecommendationService,
   type RecommendationRouterOptions,
 } from './modules/recommendations/recommendation.routes.js';
 
@@ -15,6 +17,8 @@ export type CreateAppOptions = RecommendationRouterOptions;
  */
 export function createApp(options: CreateAppOptions = {}): Express {
   const app = express();
+  const recommendationService =
+    options.recommendationService ?? createRecommendationService();
 
   app.use(express.json());
   app.use(requestLogger);
@@ -24,7 +28,11 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use('/jobs', createJobRouter());
   app.use(
     '/candidates/:candidateId/recommendations',
-    createRecommendationRouter(options),
+    createCandidateRecommendationRouter(recommendationService),
+  );
+  app.use(
+    '/jobs/:jobId/recommendations',
+    createJobRecommendationRouter(recommendationService),
   );
 
   app.use(errorHandler);
