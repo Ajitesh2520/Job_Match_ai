@@ -1,10 +1,11 @@
-import type { ScoreBreakdown } from '../../../../types/index.js';
+import type { ScoreDimension, ScoreResult, ScoringCandidate, ScoringJob } from '../types.js';
 
 /**
  * Contract for individual scoring strategies (Strategy Pattern).
- * Each scorer returns a partial contribution toward the 0–100 total.
+ * Each scorer returns an explainable partial contribution toward the 0–100 total.
  */
 export interface ScoringStrategy {
-  readonly name: keyof Omit<ScoreBreakdown, 'total'>;
-  score(_candidate: unknown, _job: unknown): number;
+  readonly name: ScoreDimension;
+  readonly maxScore: number;
+  score(candidate: ScoringCandidate, job: ScoringJob): ScoreResult;
 }
