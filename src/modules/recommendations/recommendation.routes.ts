@@ -13,10 +13,26 @@ import {
 import { RecommendationController } from './recommendation.controller.js';
 import { RecommendationService } from './recommendation.service.js';
 
+export type RecommendationRouterOptions = {
+  recommendationService?: RecommendationService;
+};
+
 /**
  * Composes recommendation dependencies (DI via constructor injection).
  */
-export function createRecommendationRouter(): Router {
+export function createRecommendationRouter(
+  options: RecommendationRouterOptions = {},
+): Router {
+  const service = options.recommendationService ?? createDefaultRecommendationService();
+  const controller = new RecommendationController(service);
+
+  const router = Router({ mergeParams: true });
+  router.get('/', controller.getForCandidate);
+
+  return router;
+}
+
+function createDefaultRecommendationService(): RecommendationService {
   const prisma = getPrismaClient();
   const candidateRepository = new CandidateRepository(prisma);
   const jobRepository = new JobRepository(prisma);
@@ -28,16 +44,10 @@ export function createRecommendationRouter(): Router {
     new SalaryScorer(),
   ]);
 
-  const service = new RecommendationService(
+  return new RecommendationService(
     candidateRepository,
     jobRepository,
     eligibilityChecker,
     scoringEngine,
   );
-  const controller = new RecommendationController(service);
-
-  const router = Router({ mergeParams: true });
-  router.get('/', controller.getForCandidate);
-
-  return router;
 }

@@ -1,12 +1,16 @@
 import { z } from 'zod';
 
-/** Placeholder query schema for GET recommendations (supports limit). */
 export const recommendationsQuerySchema = z.object({
-  limit: z.coerce.number().int().positive().max(100).default(10),
+  limit: z.coerce
+    .number()
+    .int('limit must be an integer')
+    .min(1, 'limit must be >= 1')
+    .max(50, 'limit must be <= 50')
+    .default(10),
 });
 
 export const candidateIdParamSchema = z.object({
-  candidateId: z.string().uuid(),
+  candidateId: z.string().uuid('candidateId must be a valid UUID'),
 });
 
 export type RecommendationsQuery = z.infer<typeof recommendationsQuerySchema>;

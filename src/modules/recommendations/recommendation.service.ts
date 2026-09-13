@@ -1,3 +1,4 @@
+import { AppError, ErrorCode } from '../../shared/errors.js';
 import type { CandidateWithSkills } from '../candidates/candidate.repository.js';
 import type { CandidateRepository } from '../candidates/candidate.repository.js';
 import type { JobWithSkills } from '../jobs/job.repository.js';
@@ -10,11 +11,16 @@ import type {
   ScoringJob,
 } from './domain/types.js';
 
-export class CandidateNotFoundError extends Error {
+export class CandidateNotFoundError extends AppError {
   readonly candidateId: string;
 
   constructor(candidateId: string) {
-    super(`Candidate not found: ${candidateId}`);
+    super(
+      ErrorCode.CANDIDATE_NOT_FOUND,
+      `Candidate not found: ${candidateId}`,
+      404,
+      { candidateId },
+    );
     this.name = 'CandidateNotFoundError';
     this.candidateId = candidateId;
   }

@@ -1,20 +1,30 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import { asyncHandler } from '../../middleware/asyncHandler.js';
+import {
+  candidateIdParamSchema,
+  recommendationsQuerySchema,
+} from './recommendation.schemas.js';
 import type { RecommendationService } from './recommendation.service.js';
 
 /**
  * HTTP adapter for recommendation use cases.
- * Intended route: GET /candidates/:candidateId/recommendations?limit=
+ * Route: GET /candidates/:candidateId/recommendations?limit=
  */
 export class RecommendationController {
   constructor(private readonly recommendationService: RecommendationService) {}
 
-  getForCandidate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      void req;
-      void this.recommendationService;
-      res.status(501).json({ error: { message: 'Not implemented', status: 501 } });
-    } catch (error) {
-      next(error);
-    }
-  };
+  getForCandidate = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { candidateId } = candidateIdParamSchema.parse(req.params);
+    const { limit } = recommendationsQuerySchema.parse(req.query);
+
+    const recommendations = await this.recommendationService.recommendForCandidate(
+      candidateId,
+      limit,
+    );
+
+    res.status(200).json({
+      candidateId,
+      recommendations,
+    });
+  });
 }

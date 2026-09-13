@@ -1,4 +1,5 @@
 export { createRecommendationRouter } from './recommendation.routes.js';
+export type { RecommendationRouterOptions } from './recommendation.routes.js';
 export {
   RecommendationService,
   CandidateNotFoundError,

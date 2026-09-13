@@ -1,4 +1,5 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import { asyncHandler } from '../../middleware/asyncHandler.js';
 import { createCandidateSchema } from './candidate.schemas.js';
 import type { CandidateService } from './candidate.service.js';
 
@@ -8,31 +9,19 @@ import type { CandidateService } from './candidate.service.js';
 export class CandidateController {
   constructor(private readonly candidateService: CandidateService) {}
 
-  list = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      res.status(501).json({ error: { message: 'Not implemented', status: 501 } });
-    } catch (error) {
-      next(error);
-    }
-  };
+  list = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+    res.status(501).json({ error: { message: 'Not implemented', status: 501 } });
+  });
 
-  getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      void req;
-      void this.candidateService;
-      res.status(501).json({ error: { message: 'Not implemented', status: 501 } });
-    } catch (error) {
-      next(error);
-    }
-  };
+  getById = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    void req;
+    void this.candidateService;
+    res.status(501).json({ error: { message: 'Not implemented', status: 501 } });
+  });
 
-  create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const input = createCandidateSchema.parse(req.body);
-      const candidate = await this.candidateService.create(input);
-      res.status(201).json(candidate);
-    } catch (error) {
-      next(error);
-    }
-  };
+  create = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const input = createCandidateSchema.parse(req.body);
+    const candidate = await this.candidateService.create(input);
+    res.status(201).json(candidate);
+  });
 }
