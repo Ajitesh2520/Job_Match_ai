@@ -7,11 +7,8 @@ import type { CandidateWithSkills } from '../candidates/candidate.repository.js'
 import type { JobWithSkills } from '../jobs/job.repository.js';
 import {
   EligibilityChecker,
-  ExperienceScorer,
-  LocationScorer,
-  SalaryScorer,
   ScoringEngine,
-  SkillScorer,
+  createScoringStrategies,
 } from './domain/index.js';
 import { RecommendationService } from './recommendation.service.js';
 
@@ -94,12 +91,7 @@ function buildTestApp(
     { findById: candidateFindById, findAll: candidateFindAll } as never,
     { findById: jobFindById, findAll: jobFindAll } as never,
     new EligibilityChecker(),
-    new ScoringEngine([
-      new SkillScorer(),
-      new ExperienceScorer(),
-      new LocationScorer(),
-      new SalaryScorer(),
-    ]),
+    new ScoringEngine(createScoringStrategies()),
   );
 
   return {

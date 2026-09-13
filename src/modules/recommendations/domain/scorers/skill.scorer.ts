@@ -1,10 +1,14 @@
 import { normalizeSkill, normalizeSkills } from '../../../../shared/skills.js';
+import {
+  DEFAULT_SCORING_WEIGHTS,
+  SKILL_MUST_HAVE_SHARE,
+  SKILL_NICE_TO_HAVE_SHARE,
+} from '../../../../config/scoring.js';
 import type { ScoreResult, ScoringCandidate, ScoringJob } from '../types.js';
 import type { ScoringStrategy } from './scoring-strategy.js';
 
-export const SKILL_MAX_SCORE = 50;
-const MUST_HAVE_POINTS = 40;
-const NICE_TO_HAVE_POINTS = 10;
+/** @deprecated Prefer DEFAULT_SCORING_WEIGHTS.skills */
+export const SKILL_MAX_SCORE = DEFAULT_SCORING_WEIGHTS.skills;
 
 export type SkillScoreDetails = {
   mustHaveMatched: number;
@@ -17,14 +21,22 @@ export type SkillScoreDetails = {
 };
 
 /**
- * Skill fit (max 50).
- * Eligibility already guarantees must-haves, so mandatory fit is worth 40.
- * Nice-to-have overlap contributes up to 10 proportionally.
- * Jobs with no nice-to-have skills are not penalized (full 50).
+ * Skill fit.
+ * Eligibility already guarantees must-haves, so mandatory fit takes the must-have share.
+ * Nice-to-have overlap contributes the remaining share proportionally.
+ * Jobs with no nice-to-have skills are not penalized (full skills weight).
  */
 export class SkillScorer implements ScoringStrategy {
   readonly name = 'skills' as const;
-  readonly maxScore = SKILL_MAX_SCORE;
+  readonly maxScore: number;
+  private readonly mustHavePoints: number;
+  private readonly niceToHavePoints: number;
+
+  constructor(maxScore: number = DEFAULT_SCORING_WEIGHTS.skills) {
+    this.maxScore = maxScore;
+    this.mustHavePoints = maxScore * SKILL_MUST_HAVE_SHARE;
+    this.niceToHavePoints = maxScore * SKILL_NICE_TO_HAVE_SHARE;
+  }
 
   score(candidate: ScoringCandidate, job: ScoringJob): ScoreResult<SkillScoreDetails> {
     const candidateSkills = new Set(normalizeSkills(candidate.skills));
@@ -38,19 +50,19 @@ export class SkillScorer implements ScoringStrategy {
 
     const mustHaveMatched = mustHaveSkills.filter((skill) => candidateSkills.has(skill)).length;
     const mustHaveTotal = mustHaveSkills.length;
-    const mustHavePoints = MUST_HAVE_POINTS;
+    const mustHavePoints = this.mustHavePoints;
 
     if (niceToHaveSkills.length === 0) {
       return {
-        score: SKILL_MAX_SCORE,
-        maxScore: SKILL_MAX_SCORE,
+        score: this.maxScore,
+        maxScore: this.maxScore,
         details: {
           mustHaveMatched,
           mustHaveTotal,
           mustHavePoints,
           niceToHaveMatched: 0,
           niceToHaveTotal: 0,
-          niceToHavePoints: NICE_TO_HAVE_POINTS,
+          niceToHavePoints: this.niceToHavePoints,
           noNiceToHaveSkills: true,
         },
       };
@@ -58,12 +70,12 @@ export class SkillScorer implements ScoringStrategy {
 
     const niceToHaveMatched = niceToHaveSkills.filter((skill) => candidateSkills.has(skill)).length;
     const niceToHaveTotal = niceToHaveSkills.length;
-    const niceToHavePoints = (niceToHaveMatched / niceToHaveTotal) * NICE_TO_HAVE_POINTS;
+    const niceToHavePoints = (niceToHaveMatched / niceToHaveTotal) * this.niceToHavePoints;
     const score = mustHavePoints + niceToHavePoints;
 
     return {
       score,
-      maxScore: SKILL_MAX_SCORE,
+      maxScore: this.maxScore,
       details: {
         mustHaveMatched,
         mustHaveTotal,

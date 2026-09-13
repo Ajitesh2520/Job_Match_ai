@@ -1,7 +1,12 @@
+import {
+  DEFAULT_SCORING_WEIGHTS,
+  LOCATION_REMOTE_SHARE,
+} from '../../../../config/scoring.js';
 import type { ScoreResult, ScoringCandidate, ScoringJob } from '../types.js';
 import type { ScoringStrategy } from './scoring-strategy.js';
 
-export const LOCATION_MAX_SCORE = 15;
+/** @deprecated Prefer DEFAULT_SCORING_WEIGHTS.location */
+export const LOCATION_MAX_SCORE = DEFAULT_SCORING_WEIGHTS.location;
 
 export type LocationMatchKind = 'exact' | 'remote' | 'mismatch';
 
@@ -13,11 +18,18 @@ export type LocationScoreDetails = {
 };
 
 /**
- * Location preference (max 15): exact match > remote > mismatch.
+ * Location preference: exact match > remote > mismatch.
+ * Remote score is a configured share of the location weight (10/15 by default).
  */
 export class LocationScorer implements ScoringStrategy {
   readonly name = 'location' as const;
-  readonly maxScore = LOCATION_MAX_SCORE;
+  readonly maxScore: number;
+  private readonly remoteScore: number;
+
+  constructor(maxScore: number = DEFAULT_SCORING_WEIGHTS.location) {
+    this.maxScore = maxScore;
+    this.remoteScore = maxScore * LOCATION_REMOTE_SHARE;
+  }
 
   score(candidate: ScoringCandidate, job: ScoringJob): ScoreResult<LocationScoreDetails> {
     const candidateLocation = normalizeLocation(candidate.location);
@@ -28,10 +40,10 @@ export class LocationScorer implements ScoringStrategy {
     let match: LocationMatchKind;
 
     if (exactMatch) {
-      score = LOCATION_MAX_SCORE;
+      score = this.maxScore;
       match = 'exact';
     } else if (job.remoteAllowed) {
-      score = 10;
+      score = this.remoteScore;
       match = 'remote';
     } else {
       score = 0;
@@ -40,7 +52,7 @@ export class LocationScorer implements ScoringStrategy {
 
     return {
       score,
-      maxScore: LOCATION_MAX_SCORE,
+      maxScore: this.maxScore,
       details: {
         candidateLocation,
         jobLocation,

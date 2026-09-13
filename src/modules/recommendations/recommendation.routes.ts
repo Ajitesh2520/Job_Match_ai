@@ -4,11 +4,8 @@ import { CandidateRepository } from '../candidates/candidate.repository.js';
 import { JobRepository } from '../jobs/job.repository.js';
 import {
   EligibilityChecker,
-  ExperienceScorer,
-  LocationScorer,
-  SalaryScorer,
   ScoringEngine,
-  SkillScorer,
+  createScoringStrategies,
 } from './domain/index.js';
 import { RecommendationController } from './recommendation.controller.js';
 import { RecommendationService } from './recommendation.service.js';
@@ -22,12 +19,7 @@ export function createRecommendationService(): RecommendationService {
   const candidateRepository = new CandidateRepository(prisma);
   const jobRepository = new JobRepository(prisma);
   const eligibilityChecker = new EligibilityChecker();
-  const scoringEngine = new ScoringEngine([
-    new SkillScorer(),
-    new ExperienceScorer(),
-    new LocationScorer(),
-    new SalaryScorer(),
-  ]);
+  const scoringEngine = new ScoringEngine(createScoringStrategies());
 
   return new RecommendationService(
     candidateRepository,

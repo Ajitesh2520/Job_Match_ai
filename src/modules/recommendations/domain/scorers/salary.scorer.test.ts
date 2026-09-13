@@ -72,7 +72,9 @@ describe('SalaryScorer', () => {
       const result = scorer.score(candidate(100000), job(200000, 250000));
       expect(result.score).toBe(7.5);
       expect(result.details.fit).toBe('above_minimum');
-      expect(result.details.formula).toBe('Jmin > E => min(15, 15 * (E / Jmin))');
+      expect(result.details.formula).toBe(
+        'Jmin > E => min(maxScore, maxScore * (E / Jmin))',
+      );
     });
 
     it('approaches 15 when Jmin is only slightly above E', () => {

@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createScoringStrategies } from './create-scoring-strategies.js';
 import { ScoringEngine } from './scoring-engine.js';
-import {
-  ExperienceScorer,
-  LocationScorer,
-  SalaryScorer,
-  SkillScorer,
-} from './scorers/index.js';
 import type { ScoringStrategy } from './scorers/scoring-strategy.js';
 import type { ScoreResult, ScoringCandidate, ScoringJob } from './types.js';
 
@@ -29,12 +24,7 @@ function stubStrategy(
 }
 
 function createProductionEngine(): ScoringEngine {
-  return new ScoringEngine([
-    new SkillScorer(),
-    new ExperienceScorer(),
-    new LocationScorer(),
-    new SalaryScorer(),
-  ]);
+  return new ScoringEngine(createScoringStrategies());
 }
 
 const candidate: ScoringCandidate = {
@@ -120,8 +110,15 @@ describe('ScoringEngine', () => {
     expect(salary.score).toHaveBeenCalledTimes(1);
   });
 
-  describe('scoring total <= 100 with production strategies', () => {
+  describe('scoring total <= 100 with configured production strategies', () => {
     const engine = createProductionEngine();
+
+    it('uses configured strategy maximums that sum to 100', () => {
+      const strategies = createScoringStrategies();
+      const totalMax = strategies.reduce((sum, strategy) => sum + strategy.maxScore, 0);
+      expect(totalMax).toBe(100);
+      expect(strategies.map((s) => s.maxScore)).toEqual([50, 20, 15, 15]);
+    });
 
     it('scores a perfect match at exactly 100', () => {
       const result = engine.score(

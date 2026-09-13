@@ -11,4 +11,5 @@ export type {
 } from './types.js';
 export { EligibilityChecker } from './eligibility-checker.js';
 export { ScoringEngine } from './scoring-engine.js';
+export { createScoringStrategies } from './create-scoring-strategies.js';
 export * from './scorers/index.js';
