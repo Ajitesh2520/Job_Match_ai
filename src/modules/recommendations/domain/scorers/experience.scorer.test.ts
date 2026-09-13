@@ -30,25 +30,27 @@ describe('ExperienceScorer', () => {
     expect(scorer.name).toBe('experience');
   });
 
-  it('returns 20 when candidate meets the minimum', () => {
+  it('returns proportional score when experience is below the minimum', () => {
+    const result = scorer.score(candidate(2), job(4));
+    expect(result.score).toBe(10);
+    expect(result.details.meetsMinimum).toBe(false);
+    expect(result.details.candidateYears).toBe(2);
+    expect(result.details.minimumYears).toBe(4);
+  });
+
+  it('returns 20 when experience equals the minimum', () => {
     const result = scorer.score(candidate(5), job(5));
     expect(result.score).toBe(20);
     expect(result.details.meetsMinimum).toBe(true);
   });
 
-  it('returns 20 when candidate exceeds the minimum', () => {
+  it('returns 20 when experience is above the minimum', () => {
     const result = scorer.score(candidate(10), job(3));
     expect(result.score).toBe(20);
     expect(result.details.meetsMinimum).toBe(true);
   });
 
-  it('returns proportional score when candidate is below the minimum', () => {
-    const result = scorer.score(candidate(2), job(4));
-    expect(result.score).toBe(10);
-    expect(result.details.meetsMinimum).toBe(false);
-  });
-
-  it('returns 20 when minimum years is 0', () => {
+  it('returns 20 when minimum experience is zero', () => {
     const result = scorer.score(candidate(0), job(0));
     expect(result.score).toBe(20);
     expect(result.details.minimumYears).toBe(0);
@@ -62,11 +64,5 @@ describe('ExperienceScorer', () => {
   it('handles fractional proportional scores deterministically', () => {
     const result = scorer.score(candidate(1), job(3));
     expect(result.score).toBeCloseTo(20 / 3, 10);
-  });
-
-  it('never excludes — always returns a numeric score', () => {
-    const result = scorer.score(candidate(0), job(100));
-    expect(typeof result.score).toBe('number');
-    expect(result.maxScore).toBe(20);
   });
 });

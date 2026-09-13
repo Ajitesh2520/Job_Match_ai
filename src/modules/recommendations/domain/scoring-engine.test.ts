@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ScoringEngine } from './scoring-engine.js';
+import {
+  ExperienceScorer,
+  LocationScorer,
+  SalaryScorer,
+  SkillScorer,
+} from './scorers/index.js';
 import type { ScoringStrategy } from './scorers/scoring-strategy.js';
 import type { ScoreResult, ScoringCandidate, ScoringJob } from './types.js';
 
@@ -20,6 +26,15 @@ function stubStrategy(
       }),
     ),
   };
+}
+
+function createProductionEngine(): ScoringEngine {
+  return new ScoringEngine([
+    new SkillScorer(),
+    new ExperienceScorer(),
+    new LocationScorer(),
+    new SalaryScorer(),
+  ]);
 }
 
 const candidate: ScoringCandidate = {
@@ -103,5 +118,76 @@ describe('ScoringEngine', () => {
     expect(experience.score).toHaveBeenCalledTimes(1);
     expect(location.score).toHaveBeenCalledTimes(1);
     expect(salary.score).toHaveBeenCalledTimes(1);
+  });
+
+  describe('scoring total <= 100 with production strategies', () => {
+    const engine = createProductionEngine();
+
+    it('scores a perfect match at exactly 100', () => {
+      const result = engine.score(
+        {
+          skills: ['typescript', 'node.js'],
+          yearsOfExperience: 5,
+          location: 'London',
+          expectedSalary: 100000,
+        },
+        {
+          skills: [
+            { skill: 'typescript', type: 'MUST_HAVE' },
+            { skill: 'node.js', type: 'NICE_TO_HAVE' },
+          ],
+          minYearsExperience: 3,
+          location: 'London',
+          salaryMin: 90000,
+          salaryMax: 120000,
+          remoteAllowed: false,
+        },
+      );
+
+      expect(result.score).toBe(100);
+      expect(result.score).toBeLessThanOrEqual(100);
+      expect(engine.maxScore).toBe(100);
+    });
+
+    it('never exceeds 100 for mismatched soft constraints', () => {
+      const result = engine.score(
+        {
+          skills: ['typescript'],
+          yearsOfExperience: 1,
+          location: 'Berlin',
+          expectedSalary: 200000,
+        },
+        {
+          skills: [
+            { skill: 'typescript', type: 'MUST_HAVE' },
+            { skill: 'rust', type: 'NICE_TO_HAVE' },
+          ],
+          minYearsExperience: 10,
+          location: 'Tokyo',
+          salaryMin: 50000,
+          salaryMax: 80000,
+          remoteAllowed: false,
+        },
+      );
+
+      expect(result.score).toBeGreaterThanOrEqual(0);
+      expect(result.score).toBeLessThanOrEqual(100);
+      expect(
+        result.breakdown.skills.score +
+          result.breakdown.experience.score +
+          result.breakdown.location.score +
+          result.breakdown.salary.score,
+      ).toBe(result.score);
+    });
+
+    it('never exceeds 100 when there are no nice-to-have skills', () => {
+      const result = engine.score(candidate, {
+        ...job,
+        skills: [{ skill: 'typescript', type: 'MUST_HAVE' }],
+      });
+
+      expect(result.breakdown.skills.score).toBe(50);
+      expect(result.score).toBeLessThanOrEqual(100);
+    });
   });
 });

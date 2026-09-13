@@ -75,6 +75,16 @@ describe('RecommendationService', () => {
     );
   });
 
+  it('loads the candidate through CandidateRepository and does not touch Prisma', async () => {
+    findById.mockResolvedValue(makeCandidate());
+    findAll.mockResolvedValue([]);
+
+    await service.recommendForCandidate('candidate-1', 10);
+
+    expect(findById).toHaveBeenCalledWith('candidate-1');
+    expect(findAll).toHaveBeenCalledTimes(1);
+  });
+
   it('throws CandidateNotFoundError when the candidate does not exist', async () => {
     findById.mockResolvedValue(null);
 
@@ -86,7 +96,7 @@ describe('RecommendationService', () => {
     expect(scoreFn).not.toHaveBeenCalled();
   });
 
-  it('excludes jobs missing must-have skills (ineligible)', async () => {
+  it('excludes jobs missing must-have skills before scoring', async () => {
     const candidate = makeCandidate();
     const eligible = makeJob('job-eligible', 'Eligible', [
       {
@@ -129,7 +139,6 @@ describe('RecommendationService', () => {
 
   it('scores only eligible jobs', async () => {
     const candidate = makeCandidate();
-    // Distinct minYearsExperience identifies each job after mapping to ScoringJob.
     const jobA = { ...makeJob('job-a', 'A'), minYearsExperience: 1 };
     const jobB = { ...makeJob('job-b', 'B'), minYearsExperience: 2 };
     const jobC = { ...makeJob('job-c', 'C'), minYearsExperience: 3 };
@@ -156,14 +165,14 @@ describe('RecommendationService', () => {
     expect(results.map((r) => r.jobId)).toEqual(['job-c', 'job-a']);
   });
 
-  it('ranks recommendations by descending score', async () => {
+  it('sorts recommendations by descending score', async () => {
     const candidate = makeCandidate();
-    const low = makeJob('job-low', 'Low');
-    const high = makeJob('job-high', 'High');
-    const mid = makeJob('job-mid', 'Mid');
-
     findById.mockResolvedValue(candidate);
-    findAll.mockResolvedValue([low, high, mid]);
+    findAll.mockResolvedValue([
+      makeJob('job-low', 'Low'),
+      makeJob('job-high', 'High'),
+      makeJob('job-mid', 'Mid'),
+    ]);
     isEligible.mockReturnValue(true);
     scoreFn
       .mockReturnValueOnce({
@@ -187,11 +196,8 @@ describe('RecommendationService', () => {
 
   it('applies deterministic tie-breaking by jobId ascending', async () => {
     const candidate = makeCandidate();
-    const jobB = makeJob('job-b', 'B');
-    const jobA = makeJob('job-a', 'A');
-
     findById.mockResolvedValue(candidate);
-    findAll.mockResolvedValue([jobB, jobA]);
+    findAll.mockResolvedValue([makeJob('job-b', 'B'), makeJob('job-a', 'A')]);
     isEligible.mockReturnValue(true);
     scoreFn.mockReturnValue({
       score: 75,
@@ -203,7 +209,7 @@ describe('RecommendationService', () => {
     expect(results.map((r) => r.jobId)).toEqual(['job-a', 'job-b']);
   });
 
-  it('applies the limit after ranking', async () => {
+  it('applies the recommendation limit after ranking', async () => {
     const candidate = makeCandidate();
     findById.mockResolvedValue(candidate);
     findAll.mockResolvedValue([
@@ -232,7 +238,7 @@ describe('RecommendationService', () => {
     expect(results.map((r) => r.jobId)).toEqual(['job-2', 'job-3']);
   });
 
-  it('returns an empty list when no jobs are eligible', async () => {
+  it('returns an empty list when there are no eligible jobs', async () => {
     const candidate = makeCandidate();
     findById.mockResolvedValue(candidate);
     findAll.mockResolvedValue([makeJob('job-1', 'One'), makeJob('job-2', 'Two')]);

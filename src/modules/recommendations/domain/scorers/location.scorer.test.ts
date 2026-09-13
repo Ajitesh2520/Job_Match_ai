@@ -36,20 +36,20 @@ describe('LocationScorer', () => {
     expect(result.details.match).toBe('exact');
   });
 
-  it('matches locations case-insensitively with trimming', () => {
+  it('matches exact locations case-insensitively with trimming', () => {
     const result = scorer.score(candidate('  NEW YORK '), job('new york', true));
     expect(result.score).toBe(15);
     expect(result.details.match).toBe('exact');
   });
 
-  it('returns 10 when locations differ but remote is allowed', () => {
+  it('returns 10 for a remote location when remote is allowed', () => {
     const result = scorer.score(candidate('London'), job('Berlin', true));
     expect(result.score).toBe(10);
     expect(result.details.match).toBe('remote');
     expect(result.details.remoteAllowed).toBe(true);
   });
 
-  it('returns 0 when locations differ and remote is not allowed', () => {
+  it('returns 0 for a mismatched non-remote location', () => {
     const result = scorer.score(candidate('London'), job('Berlin', false));
     expect(result.score).toBe(0);
     expect(result.details.match).toBe('mismatch');
