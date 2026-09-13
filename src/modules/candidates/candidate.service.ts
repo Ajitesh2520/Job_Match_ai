@@ -1,4 +1,6 @@
-import type { CandidateRepository } from './candidate.repository.js';
+import { normalizeSkills } from '../../shared/skills.js';
+import type { CandidateRepository, CandidateWithSkills } from './candidate.repository.js';
+import type { CreateCandidateInput } from './candidate.schemas.js';
 
 /**
  * Candidate business logic.
@@ -7,11 +9,19 @@ import type { CandidateRepository } from './candidate.repository.js';
 export class CandidateService {
   constructor(private readonly candidateRepository: CandidateRepository) {}
 
-  async getById(id: string): Promise<null> {
+  async getById(id: string): Promise<CandidateWithSkills | null> {
     return this.candidateRepository.findById(id);
   }
 
-  async create(data: unknown): Promise<never> {
-    return this.candidateRepository.create(data);
+  async create(input: CreateCandidateInput): Promise<CandidateWithSkills> {
+    const skills = normalizeSkills(input.skills);
+
+    return this.candidateRepository.create({
+      name: input.name,
+      yearsOfExperience: input.yearsOfExperience,
+      location: input.location,
+      expectedSalary: input.expectedSalary,
+      skills,
+    });
   }
 }

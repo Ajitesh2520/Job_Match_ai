@@ -1,4 +1,3 @@
-// Placeholder schema — Candidate / Job models will be added in a later iteration.
 generator client {
   provider = "prisma-client-js"
 }
@@ -6,4 +5,63 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model Candidate {
+  id                String           @id @default(uuid()) @db.Uuid
+  name              String
+  yearsOfExperience Int
+  location          String
+  expectedSalary    Int
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  skills            CandidateSkill[]
+
+  @@index([location])
+  @@map("candidates")
+}
+
+model CandidateSkill {
+  id          String    @id @default(uuid()) @db.Uuid
+  candidateId String    @db.Uuid
+  skill       String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateId, skill])
+  @@index([skill])
+  @@map("candidate_skills")
+}
+
+enum JobSkillType {
+  MUST_HAVE
+  NICE_TO_HAVE
+}
+
+model Job {
+  id                 String     @id @default(uuid()) @db.Uuid
+  title              String
+  minYearsExperience Int
+  location           String
+  salaryMin          Int
+  salaryMax          Int
+  remoteAllowed      Boolean    @default(false)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  skills             JobSkill[]
+
+  @@index([location])
+  @@map("jobs")
+}
+
+model JobSkill {
+  id    String       @id @default(uuid()) @db.Uuid
+  jobId String       @db.Uuid
+  skill String
+  type  JobSkillType
+  job   Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, skill])
+  @@index([skill])
+  @@index([type])
+  @@map("job_skills")
 }

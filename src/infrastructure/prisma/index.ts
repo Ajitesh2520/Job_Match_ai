@@ -1,1 +1,1 @@
-export { getPrismaClient, type PrismaClientPlaceholder } from './client.js';
+export { getPrismaClient, disconnectPrisma } from './client.js';

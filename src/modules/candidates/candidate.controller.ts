@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { createCandidateSchema } from './candidate.schemas.js';
 import type { CandidateService } from './candidate.service.js';
 
 /**
@@ -27,9 +28,9 @@ export class CandidateController {
 
   create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      void req;
-      void this.candidateService;
-      res.status(501).json({ error: { message: 'Not implemented', status: 501 } });
+      const input = createCandidateSchema.parse(req.body);
+      const candidate = await this.candidateService.create(input);
+      res.status(201).json(candidate);
     } catch (error) {
       next(error);
     }

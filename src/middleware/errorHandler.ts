@@ -1,8 +1,16 @@
+import { ZodError } from 'zod';
 import type { NextFunction, Request, Response } from 'express';
 
+type ErrorBody = {
+  error: {
+    message: string;
+    status: number;
+    details?: unknown;
+  };
+};
+
 /**
- * Placeholder central error handler.
- * Will map domain / Zod / Prisma errors to HTTP responses later.
+ * Maps known errors (Zod validation) to HTTP responses.
  */
 export function errorHandler(
   err: unknown,
@@ -10,6 +18,18 @@ export function errorHandler(
   res: Response,
   _next: NextFunction,
 ): void {
+  if (err instanceof ZodError) {
+    const body: ErrorBody = {
+      error: {
+        message: 'Validation failed',
+        status: 400,
+        details: err.flatten(),
+      },
+    };
+    res.status(400).json(body);
+    return;
+  }
+
   const message = err instanceof Error ? err.message : 'Internal Server Error';
   const status = 500;
 
@@ -17,10 +37,12 @@ export function errorHandler(
     console.error(err);
   }
 
-  res.status(status).json({
+  const body: ErrorBody = {
     error: {
       message,
       status,
     },
-  });
+  };
+
+  res.status(status).json(body);
 }

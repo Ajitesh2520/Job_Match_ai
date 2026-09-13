@@ -1,8 +1,11 @@
 import { z } from 'zod';
 
-/** Placeholder Zod schemas for Candidate APIs. */
 export const createCandidateSchema = z.object({
-  // Fields will be defined with Prisma models.
+  name: z.string().trim().min(1, 'name is required'),
+  yearsOfExperience: z.number().int().min(0, 'yearsOfExperience must be >= 0'),
+  location: z.string().trim().min(1, 'location is required'),
+  expectedSalary: z.number().int().positive('expectedSalary must be > 0'),
+  skills: z.array(z.string()).default([]),
 });
 
 export const candidateIdParamSchema = z.object({

@@ -1,17 +1,19 @@
-/**
- * Prisma client placeholder.
- * Instantiation and lifecycle management will be wired when models exist.
- */
-export type PrismaClientPlaceholder = {
-  // Replaced by @prisma/client once schema models are defined.
-  readonly __brand: 'PrismaClientPlaceholder';
+import { PrismaClient } from '@prisma/client';
+
+const globalForPrisma = globalThis as unknown as {
+  prisma?: PrismaClient;
 };
 
-let prisma: PrismaClientPlaceholder | null = null;
-
-export function getPrismaClient(): PrismaClientPlaceholder {
-  if (!prisma) {
-    prisma = { __brand: 'PrismaClientPlaceholder' };
+export function getPrismaClient(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = new PrismaClient();
   }
-  return prisma;
+  return globalForPrisma.prisma;
+}
+
+export async function disconnectPrisma(): Promise<void> {
+  if (globalForPrisma.prisma) {
+    await globalForPrisma.prisma.$disconnect();
+    globalForPrisma.prisma = undefined;
+  }
 }

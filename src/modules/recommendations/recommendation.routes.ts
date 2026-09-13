@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { getPrismaClient } from '../../infrastructure/prisma/index.js';
 import { CandidateRepository } from '../candidates/candidate.repository.js';
 import { JobRepository } from '../jobs/job.repository.js';
 import {
@@ -16,8 +17,9 @@ import { RecommendationService } from './recommendation.service.js';
  * Composes recommendation dependencies (DI via constructor injection).
  */
 export function createRecommendationRouter(): Router {
-  const candidateRepository = new CandidateRepository();
-  const jobRepository = new JobRepository();
+  const prisma = getPrismaClient();
+  const candidateRepository = new CandidateRepository(prisma);
+  const jobRepository = new JobRepository(prisma);
   const eligibilityChecker = new EligibilityChecker();
   const scoringEngine = new ScoringEngine([
     new SkillScorer(),

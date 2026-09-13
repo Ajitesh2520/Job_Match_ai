@@ -1,15 +1,37 @@
+import type { Candidate, CandidateSkill, PrismaClient } from '@prisma/client';
+import type { CreateCandidateInput } from './candidate.schemas.js';
+
+export type CandidateWithSkills = Candidate & { skills: CandidateSkill[] };
+
+export type CreateCandidateData = Omit<CreateCandidateInput, 'skills'> & {
+  skills: string[];
+};
+
 /**
  * Candidate persistence (Repository Pattern).
- * Concrete Prisma queries will be added with models.
  */
 export class CandidateRepository {
-  // constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
-  async findById(_id: string): Promise<null> {
-    throw new Error('CandidateRepository.findById is not implemented yet');
+  async findById(id: string): Promise<CandidateWithSkills | null> {
+    return this.prisma.candidate.findUnique({
+      where: { id },
+      include: { skills: true },
+    });
   }
 
-  async create(_data: unknown): Promise<never> {
-    throw new Error('CandidateRepository.create is not implemented yet');
+  async create(data: CreateCandidateData): Promise<CandidateWithSkills> {
+    return this.prisma.candidate.create({
+      data: {
+        name: data.name,
+        yearsOfExperience: data.yearsOfExperience,
+        location: data.location,
+        expectedSalary: data.expectedSalary,
+        skills: {
+          create: data.skills.map((skill) => ({ skill })),
+        },
+      },
+      include: { skills: true },
+    });
   }
 }
