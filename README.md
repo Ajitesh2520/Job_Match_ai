@@ -1,369 +1,33 @@
 # Job Match API
 
-A TypeScript modular monolith that matches candidates to jobs (and jobs to candidates) using explainable, weighted scoring.
+Recommend jobs to candidates (and candidates to jobs) with an **explainable 0–100 score**.
 
-## Overview
+Must-have skills are a **hard filter**. Experience, location, salary, and nice-to-have skills only affect ranking.
 
-The API lets you:
+---
 
-1. Create **candidates** and **jobs** with skills, experience, location, and salary attributes.
-2. Recommend **jobs for a candidate** or **candidates for a job**.
-3. Return a **0–100 score** plus a per-dimension breakdown so results are auditable.
+## How to run
 
-Matching is deterministic rule-based scoring — not ML. Must-have skills are hard filters; experience, location, salary, and nice-to-have skills only affect the score.
-
-## Requirements
+### Prerequisites
 
 - Node.js 20+
-- PostgreSQL 16+ (or Docker Compose, which includes Postgres)
 - npm 10+
+- PostgreSQL 16+ **or** Docker / Docker Compose
 
-## Tech stack (and why)
-
-| Technology | Role | Why |
-| --- | --- | --- |
-| **TypeScript** | Language | Strict typing across HTTP, domain, and persistence boundaries |
-| **Node.js + Express** | HTTP server | Small surface area, straightforward middleware, easy to test with Supertest |
-| **PostgreSQL** | Database | Relational model fits candidates/jobs/skills; strong uniqueness/index support |
-| **Prisma** | ORM / migrations | Typed client, explicit schema, reliable migrate deploy in Docker |
-| **Zod** | Request validation | Runtime schema checks at the HTTP edge; maps cleanly to 400 errors |
-| **Vitest** | Tests | Fast unit/API tests with first-class TypeScript ESM support |
-
-Intentionally **not** used: Redis, Kafka, BullMQ, auth, frontend, ML ranking.
-
-## Architecture
-
-This is a **modular monolith**: one deployable process, clear module boundaries (`candidates`, `jobs`, `recommendations`), shared database.
-
-### Why modular monolith (not microservices)
-
-- One product surface and one data model — network hops and distributed transactions would add cost without benefit at this stage.
-- Cross-module recommendation needs candidates + jobs in the same request; a shared DB keeps that simple and consistent.
-- Modules stay separable later: repositories and domain scoring are already isolated from Express.
-
-### Layering
-
-```text
-HTTP (Controller)
-  → Application (Service)
-    → Persistence (Repository → Prisma → PostgreSQL)
-
-Recommendation domain (pure):
-  EligibilityChecker → ScoringEngine → ScoringStrategy[]
-```
-
-Controllers handle HTTP only (parse/validate, call service, return JSON).  
-Services orchestrate use cases and never embed scoring formulas.  
-Repositories own Prisma access.  
-Scoring strategies are pure functions of candidate/job domain inputs.
-
-### Dependency injection
-
-Collaborators are constructed in composition roots (`*.routes.ts`, `createApp`) and injected via constructors:
-
-- `CandidateService(CandidateRepository)`
-- `JobService(JobRepository)`
-- `RecommendationService(CandidateRepository, JobRepository, EligibilityChecker, ScoringEngine)`
-- `ScoringEngine(ScoringStrategy[])` — strategies are injected; the engine never instantiates them
-
-This keeps unit tests mockable at each boundary.
-
-## Folder structure
-
-```text
-src/
-  app.ts / server.ts          # Express app + process entry
-  config/                     # Env + scoring weight configuration
-  middleware/                 # asyncHandler, errorHandler, requestLogger
-  shared/                     # errors, skill normalization
-  infrastructure/prisma/      # Prisma client lifecycle
-  modules/
-    health/
-    candidates/               # controller → service → repository + Zod schemas
-    jobs/
-    recommendations/
-      recommendation.*.ts     # HTTP + orchestration
-      domain/
-        eligibility-checker.ts
-        scoring-engine.ts
-        create-scoring-strategies.ts
-        scorers/              # Skill, Experience, Location, Salary
-prisma/
-  schema.prisma
-  migrations/
-Dockerfile / docker-compose.yml / docker-entrypoint.sh
-```
-
-## Database model
-
-| Entity | Key fields |
-| --- | --- |
-| **Candidate** | `id`, `name`, `yearsOfExperience`, `location`, `expectedSalary`, timestamps |
-| **CandidateSkill** | `candidateId` + normalized `skill` (unique per candidate) |
-| **Job** | `id`, `title`, `minYearsExperience`, `location`, `salaryMin`, `salaryMax`, `remoteAllowed`, timestamps |
-| **JobSkill** | `jobId` + `skill` + `type` (`MUST_HAVE` \| `NICE_TO_HAVE`), unique per job/skill |
-
-Indexes exist on location and skill columns for filtering/matching. Skills are stored normalized (trim + lowercase) at write time.
-
-## Eligibility vs scoring
-
-| Concern | Behavior |
-| --- | --- |
-| **Eligibility** | Hard filter. A job/candidate pair is excluded if any **MUST_HAVE** skill is missing. |
-| **Scoring** | Soft ranking for eligible pairs only. Nice-to-have, experience, location, and salary **never** exclude. |
-
-- Skill comparison is case-insensitive / trimmed.
-- Duplicate normalized must-have skills count once.
-- If a job has **no** must-have skills, every candidate is eligible for that job (and vice versa for the reverse endpoint’s job-centric flow).
-
-## Strategy Pattern
-
-Each dimension implements `ScoringStrategy`:
-
-- `name`, `maxScore` (from central weight config)
-- `score(candidate, job) → { score, maxScore, details }`
-
-`ScoringEngine` runs all strategies, sums scores, and returns an explainable breakdown. Strategies can be swapped or re-weighted at composition time without changing the engine or HTTP layer.
-
-## Repository Pattern
-
-`CandidateRepository` / `JobRepository` encapsulate Prisma. Services and recommendation logic depend on repository methods (`findById`, `findAll`, `create`), not on Prisma types in the HTTP layer. Persistence can change without rewriting scoring.
-
-## Recommendation pipeline
-
-Both directions share the same eligibility + scoring code:
-
-### Jobs for a candidate — `GET /candidates/:candidateId/recommendations`
-
-1. Load candidate (404 if missing)
-2. Load all jobs
-3. For each job: eligibility → score
-4. Sort by score descending; tie-break by `jobId` ascending
-5. Apply `limit`
-
-### Candidates for a job — `GET /jobs/:jobId/recommendations`
-
-1. Load job (404 if missing)
-2. Load all candidates
-3. For each candidate: **same** `isEligible(candidate, job)` and `score(candidate, job)`
-4. Sort by score descending; tie-break by `candidateId` ascending
-5. Apply `limit`
-
-No duplicated formulas between directions.
-
-## Scoring weights (application configuration)
-
-Configured in `src/config/scoring.ts` (not via query params):
-
-| Dimension | Default weight |
-| --- | --- |
-| Skills | **50** |
-| Experience | **20** |
-| Location | **15** |
-| Salary | **15** |
-| **Total** | **100** |
-
-Validation rules:
-
-- each weight is a finite number ≥ 0
-- weights must total **exactly 100**
-
-`createScoringStrategies(weights)` validates then constructs scorers with those maxima. Changing product weights is a config/composition change, not an API contract change.
-
-### Why these weights
-
-- **Skills (50)** dominate because role fit is primarily about capability. Must-haves are already required by eligibility; the skills score rewards remaining fit and nice-to-have overlap.
-- **Experience (20)** matters but is treated as soft — strong skills can still surface junior/senior mismatches for human review.
-- **Location (15)** and **salary (15)** are important preferences but should not outweigh skills; remote-friendly roles still get partial credit.
-
-### Internal skill / location splits (defaults preserved)
-
-Within the skills weight (50):
-
-- Must-have share: **80%** → 40 points (guaranteed after eligibility)
-- Nice-to-have share: **20%** → up to 10 points proportional to overlap
-- If the job has **no** nice-to-have skills → full skills weight (no penalty)
-
-Within the location weight (15):
-
-- Exact match → full location weight (15)
-- Different location + `remoteAllowed` → **10/15** of location weight (10 by default)
-- Mismatch + not remote → 0
-
-## Exact scoring formulas
-
-Let configured maxima be \(M_s, M_e, M_l, M_{sal}\) (defaults 50, 20, 15, 15).
-
-### Skills
-
-- No nice-to-haves: `score = M_s`
-- Otherwise:  
-  `score = (0.8 * M_s) + (matchedNice / totalNice) * (0.2 * M_s)`
-
-### Experience
-
-- `minYears == 0` or `candidateYears >= minYears`: `score = M_e`
-- Else: `score = (candidateYears / minYears) * M_e`
-
-### Location
-
-- Exact (normalized): `score = M_l`
-- Else if `remoteAllowed`: `score = M_l * (10/15)`
-- Else: `score = 0`
-
-### Salary
-
-Let \(E\) = expected salary, \(J_{min}\) / \(J_{max}\) = job range, \(M = M_{sal}\).
-
-- \(J_{max} < E\) → `0` (below expectation)
-- \(J_{min} \le E \le J_{max}\) → `M` (in range)
-- \(J_{min} > E\) → `min(M, M * (E / J_{min}))`
-
-### Salary rationale
-
-- Underpaying relative to expectation (\(J_{max} < E\)) scores zero on salary but does **not** exclude the job.
-- In-range expectation is a perfect salary fit.
-- When the job minimum sits above expectation, a transparent decay `M * E / Jmin` still awards partial credit for nearby bands and approaches 0 as the gap grows — useful for stretch roles without inventing opaque heuristics.
-
-**Total score** = sum of dimension scores (≤ 100 with default/valid weight sets).
-
-## API endpoints
-
-### `GET /health`
-
-```json
-{ "status": "ok", "timestamp": "2026-09-13T12:00:00.000Z" }
-```
-
-### `POST /candidates`
-
-Request:
-
-```json
-{
-  "name": "Ada Lovelace",
-  "yearsOfExperience": 5,
-  "location": "London",
-  "expectedSalary": 120000,
-  "skills": ["  TypeScript ", "Node.js", "typescript"]
-}
-```
-
-- Skills normalized: trim, lowercase, dedupe  
-- `yearsOfExperience >= 0`, `expectedSalary > 0`  
-- Response: `201` with candidate + skills
-
-### `POST /jobs`
-
-Request:
-
-```json
-{
-  "title": "Backend Engineer",
-  "minYearsExperience": 3,
-  "location": "Remote",
-  "salaryMin": 100000,
-  "salaryMax": 150000,
-  "remoteAllowed": true,
-  "skills": [
-    { "skill": "TypeScript", "type": "MUST_HAVE" },
-    { "skill": "GraphQL", "type": "NICE_TO_HAVE" }
-  ]
-}
-```
-
-- `salaryMin <= salaryMax`, `minYearsExperience >= 0`  
-- Skills normalized/deduped (first type wins)  
-- Response: `201` with job + skills
-
-### `GET /candidates/:candidateId/recommendations?limit=10`
-
-- `candidateId` UUID  
-- `limit` default 10, min 1, max 50  
-
-```json
-{
-  "candidateId": "11111111-1111-4111-8111-111111111111",
-  "recommendations": [
-    {
-      "jobId": "...",
-      "title": "Backend Engineer",
-      "score": 95,
-      "breakdown": {
-        "skills": { "score": 50, "maxScore": 50, "details": {} },
-        "experience": { "score": 20, "maxScore": 20, "details": {} },
-        "location": { "score": 10, "maxScore": 15, "details": {} },
-        "salary": { "score": 15, "maxScore": 15, "details": {} }
-      }
-    }
-  ]
-}
-```
-
-### `GET /jobs/:jobId/recommendations?limit=10`
-
-Same validation rules for `limit`; `jobId` UUID.
-
-```json
-{
-  "jobId": "66666666-6666-4666-8666-666666666666",
-  "recommendations": [
-    {
-      "candidateId": "...",
-      "name": "Ada Lovelace",
-      "score": 100,
-      "breakdown": { "skills": {}, "experience": {}, "location": {}, "salary": {} }
-    }
-  ]
-}
-```
-
-## Validation and error handling
-
-- Zod validates request params/query/body in controllers.
-- `asyncHandler` forwards failures to a **central** `errorHandler` (no duplicated try/catch formatting).
-
-| Code | HTTP | When |
-| --- | --- | --- |
-| `VALIDATION_ERROR` | 400 | Invalid UUID / body shape issues |
-| `INVALID_LIMIT` | 400 | `limit` out of range / invalid |
-| `CANDIDATE_NOT_FOUND` | 404 | Unknown candidate |
-| `JOB_NOT_FOUND` | 404 | Unknown job |
-| `INTERNAL_SERVER_ERROR` | 500 | Unexpected failures |
-
-Example:
-
-```json
-{
-  "error": {
-    "code": "CANDIDATE_NOT_FOUND",
-    "message": "Candidate not found: ...",
-    "status": 404,
-    "details": { "candidateId": "..." }
-  }
-}
-```
-
-## Testing strategy
-
-- **Unit:** eligibility, each scorer, scoring weights validation, scoring engine, services with mocked repositories, controllers with mocked services
-- **API/integration:** Supertest against `createApp` with injected `RecommendationService` (real eligibility + scoring, mocked persistence)
-- Coverage intent: hard filters, soft scores, ranking, ties, limits, 400/404 paths, weight totals ≤ 100
+### Option A — Docker (API + Postgres)
 
 ```bash
-npm test
-npm run lint
-npm run build
-```
-
-## Docker setup
-
-```bash
-# Build images, start API + Postgres, run migrations on boot
 docker compose up --build
+```
 
-# Health
-curl http://localhost:3000/health
+- API: http://localhost:3000  
+- Health: `curl http://localhost:3000/health`  
+- On boot the container runs `prisma migrate deploy`, then starts the server.  
+- Postgres data is stored in the `postgres_data` volume.
+
+```bash
+docker compose down        # stop; keep DB volume
+docker compose down -v     # stop and wipe DB
 ```
 
 Compose sets:
@@ -372,73 +36,285 @@ Compose sets:
 DATABASE_URL=postgresql://postgres:postgres@db:5432/job_match?schema=public
 ```
 
-Postgres data persists in the `postgres_data` volume.
-
-```bash
-docker compose down        # stop; keep volume
-docker compose down -v     # stop and wipe DB volume
-```
-
-Entrypoint runs `npx prisma migrate deploy` before `node dist/server.js`.
-
-### Local API against Compose Postgres
+### Option B — Local API + Docker Postgres
 
 ```bash
 docker compose up db -d
+
 cp .env.example .env
 npm install
-npm run prisma:migrate:deploy
+npx prisma migrate deploy
 npm run dev
 ```
 
-## Assumptions
+Default local `.env`:
 
-- Skill tokens are free-form strings after normalization (no controlled vocabulary).
-- Salaries are integers in a single currency/unit.
-- Locations are opaque strings (normalized by trim/lowercase), not geo coordinates.
-- “All jobs” / “all candidates” fit in memory for recommendation scans (fine for assignment scale).
-- Scoring weights are product configuration owned by the application, not per-request knobs.
-- No authentication or multi-tenancy.
+```text
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/job_match?schema=public
+PORT=3000
+```
 
-## Tradeoffs
+### Useful scripts
 
-| Choice | Benefit | Cost |
-| --- | --- | --- |
-| Modular monolith | Simple ops, strong consistency | Vertical scaling first |
-| Rule-based scoring | Explainable, testable, deterministic | Not personalized/learned |
-| Scan all jobs/candidates | Correct and simple | O(n) per recommendation request |
-| Prisma + Postgres | Clear schema/migrations | Requires DB for full create/recommend path |
-| Weights in code/config | Stable product behavior | Requires deploy/config change to retune |
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Hot-reload API |
+| `npm test` | Vitest (scoring + API tests) |
+| `npm run lint` | ESLint |
+| `npm run build` | Compile TypeScript |
+| `npm start` | Run `dist/server.js` |
 
-## Why Redis / ML / queues were not used
+### Quick smoke
 
-- **Redis:** no caching or session layer required for correctness; premature for this dataset size.
-- **ML:** assignment asks for transparent weighted scoring with a breakdown; models would obscure eligibility/score rules and complicate testing.
-- **Queues/workers:** recommendations are synchronous request/response; async pipelines add moving parts without a throughput requirement yet.
+```bash
+# Create a candidate
+curl -s -X POST http://localhost:3000/candidates \
+  -H 'content-type: application/json' \
+  -d '{
+    "name": "Ada Lovelace",
+    "yearsOfExperience": 5,
+    "location": "London",
+    "expectedSalary": 120000,
+    "skills": ["TypeScript", "Node.js"]
+  }'
 
-## Scalability considerations
+# Create a job
+curl -s -X POST http://localhost:3000/jobs \
+  -H 'content-type: application/json' \
+  -d '{
+    "title": "Backend Engineer",
+    "minYearsExperience": 3,
+    "location": "London",
+    "salaryMin": 100000,
+    "salaryMax": 150000,
+    "remoteAllowed": false,
+    "skills": [
+      { "skill": "TypeScript", "type": "MUST_HAVE" },
+      { "skill": "GraphQL", "type": "NICE_TO_HAVE" }
+    ]
+  }'
 
-Current design is appropriate for moderate catalogs. Next steps if load grows:
+# Recommend jobs for a candidate (replace UUID)
+curl -s "http://localhost:3000/candidates/<candidateId>/recommendations?limit=10"
 
-1. Prefilter jobs/candidates in SQL (must-have skill intersection, location/salary windows) before scoring.
-2. Add pagination beyond `limit` for large result sets.
-3. Cache hot recommendation responses with short TTL if read-heavy.
-4. Split read replicas for recommendation scans.
-5. Extract scoring to a library/package if multiple services need it — still without forcing microservices prematurely.
-
-## Future improvements
-
-- GET-by-id and list endpoints for candidates/jobs (create + recommend exist today)
-- Controlled skill taxonomy / synonyms
-- Structured locations (city, region, remote-only flag)
-- Observability (request metrics, score distribution dashboards)
-- Authn/authz if exposed publicly
-- Optional admin API to reload weight config from a secure config store (still not query-param driven)
-
-## AI / Cursor usage
-
-This codebase was developed iteratively in Cursor with an agent-assisted workflow: scaffolding the modular layout, implementing Prisma models and APIs, encoding eligibility/scoring as pure domain logic with Vitest coverage, then Dockerizing and documenting against the **actual** implementation. Human review remains responsible for product weight choices and production readiness.
+# Recommend candidates for a job (replace UUID)
+curl -s "http://localhost:3000/jobs/<jobId>/recommendations?limit=10"
+```
 
 ---
 
-**Default scoring behavior is unchanged:** skills 50 (40+10 split), experience 20, location 15 (remote 10), salary 15.
+## Scoring formula (most important)
+
+Matching is **two-phase**:
+
+1. **Eligibility (hard filter)** — only `MUST_HAVE` skills can exclude a pair.  
+2. **Scoring (soft ranking)** — eligible pairs get a 0–100 score with a per-dimension breakdown.
+
+Nice-to-have skills, experience, location, and salary **never** exclude a candidate/job.
+
+### Weights (total = 100)
+
+Configured in `src/config/scoring.ts` (application config — **not** request query params):
+
+| Dimension | Weight | Role |
+| --- | --- | --- |
+| **Skills** | **50** | Primary signal of role fit |
+| **Experience** | **20** | Soft constraint |
+| **Location** | **15** | Preference, not a gate |
+| **Salary** | **15** | Preference / fit |
+| **Total** | **100** | |
+
+Weights are validated to be ≥ 0 and sum to **exactly 100**.
+
+### Why these weights
+
+- **Skills get half the score (50)** because capability match is the main hiring signal. Must-haves are already enforced by eligibility, so the skills score rewards remaining fit (especially nice-to-haves) without re-litigating “can they do the job at all?”
+- **Experience (20)** matters, but over-weighting it would bury strong skill matches who are slightly under the posted years. Soft scoring keeps them visible for human review.
+- **Location and salary (15 each)** are real preferences, but should not outweigh skills. A perfect skill match in another city (or with a stretch salary band) should still rank well when remote is allowed or bands are close.
+
+This is deliberately **explainable and deterministic** — not ML. That makes results auditable in an interview/demo and easy to unit test.
+
+### Phase 1 — Eligibility
+
+- Job has no must-have skills → eligible.  
+- Candidate missing **any** must-have → **excluded** (not scored).  
+- Skill compare: trim + lowercase.  
+- Duplicates after normalization count once.
+
+### Phase 2 — Dimension formulas
+
+Let \(M_s=50\), \(M_e=20\), \(M_l=15\), \(M_{sal}=15\) (defaults).
+
+#### Skills (max 50)
+
+Within the skills budget:
+
+- Must-have share: **80%** → 40 points (assumes eligibility already passed)
+- Nice-to-have share: **20%** → up to 10 points
+
+```text
+if job has no nice-to-have skills:
+  skillsScore = 50                    # do not penalize
+else:
+  skillsScore = 40 + 10 * (matchedNice / totalNice)
+```
+
+#### Experience (max 20)
+
+```text
+if minYears == 0 or candidateYears >= minYears:
+  experienceScore = 20
+else:
+  experienceScore = (candidateYears / minYears) * 20
+```
+
+#### Location (max 15)
+
+```text
+if exact location match (trim + lowercase):
+  locationScore = 15
+else if job.remoteAllowed:
+  locationScore = 10                  # 10/15 of the location weight
+else:
+  locationScore = 0
+```
+
+#### Salary (max 15)
+
+Let \(E\) = candidate expected salary, \(J_{min}\)/\(J_{max}\) = job range.
+
+```text
+if Jmax < E:                         # job pays below expectation
+  salaryScore = 0
+else if Jmin <= E <= Jmax:           # expectation inside range
+  salaryScore = 15
+else:                                # Jmin > E (job min above expectation)
+  salaryScore = min(15, 15 * (E / Jmin))
+```
+
+**Salary rationale:** underpaying scores 0 on salary but does **not** drop the job. In-range is a perfect salary fit. When the job minimum is above expectation, `15 * E / Jmin` gives transparent partial credit for nearby bands and decays toward 0 as the gap grows — simple enough to explain, no opaque heuristics.
+
+### Final score
+
+```text
+total = skillsScore + experienceScore + locationScore + salaryScore
+# with default weights: 0 ≤ total ≤ 100
+```
+
+Response includes `score` plus `breakdown` (`score` / `maxScore` / `details` per dimension).
+
+Both directions use the **same** eligibility + scoring code:
+
+- `GET /candidates/:candidateId/recommendations`
+- `GET /jobs/:jobId/recommendations`
+
+---
+
+## Scoring tests (highest-value coverage)
+
+Run:
+
+```bash
+npm test
+```
+
+Focused scoring / eligibility tests live under:
+
+```text
+src/modules/recommendations/domain/
+  eligibility-checker.test.ts
+  scorers/*.test.ts
+  scoring-engine.test.ts
+  scoring.pipeline.test.ts          # end-to-end eligibility + score edge cases
+src/config/scoring.test.ts          # weight validation (sum = 100)
+```
+
+Highest-value cases covered:
+
+| Case | Expected |
+| --- | --- |
+| Candidate missing a must-have skill | Pair excluded (not scored) |
+| Missing multiple must-haves | Excluded |
+| Nice-to-have missing | Still eligible; skills score reduced |
+| Job with no must-haves | Eligible |
+| No salary overlap (`Jmax < E`) | Salary dimension = 0; pair still eligible |
+| Salary in range / on boundaries | Salary = 15 |
+| Experience below / equal / above min | Soft proportional or full 20 |
+| Exact vs remote vs mismatch location | 15 / 10 / 0 |
+| Perfect match | Total = 100 |
+| Soft mismatches | Total ≤ 100 |
+
+---
+
+## Assumptions
+
+1. Skill names are free-text after normalize (trim + lowercase); no controlled vocabulary.  
+2. Salaries are integers in one currency/unit.  
+3. Locations are opaque strings (compared case-insensitively), not geo coordinates.  
+4. Catalog size fits an in-memory scan of all jobs/candidates per request (fine for this assignment).  
+5. Scoring weights are product configuration, not something clients tune per request.  
+6. No auth / multi-tenancy.
+
+## What I’d do differently with more time
+
+1. **SQL prefilter** before scoring (must-have skill intersection) instead of `findAll` + in-memory filter — required before large catalogs.  
+2. **DB CHECK** that `salaryMin <= salaryMax` (today Zod-only).  
+3. Normalize **location on write** the same way skills are normalized.  
+4. Map Prisma unique violations to proper HTTP codes (not generic 500).  
+5. Slimmer multi-stage Docker image (`omit=dev`).  
+6. Real Postgres smoke tests (Testcontainers) for create → recommend.  
+7. Implement or remove the 501 list/get-by-id stubs for a cleaner API surface.  
+8. Defense-in-depth in `SkillScorer` so must-have points aren’t assumed solely from eligibility.
+
+---
+
+## AI tooling (Cursor)
+
+This project was built with **Cursor agent assistance**, under explicit human constraints (modular monolith, Strategy + Repository, no Redis/ML/queues, fixed scoring rules).
+
+### Where AI helped
+
+- Project scaffolding (Express/Prisma/Vitest layout, Docker Compose)  
+- Boilerplate controllers/repositories and Zod schemas  
+- Expanding unit/API tests and drafting long-form docs  
+- Refactors like shared recommendation scoring for the reverse endpoint  
+
+### Where I overrode or steered AI output
+
+- **Kept scope minimal** — rejected extras (auth, Redis, queues, frontend, microservice split).  
+- **Locked scoring semantics** — must-have as hard filter; weights 50/20/15/15; salary `E/Jmin` formula as specified, not “smarter” opaque alternatives.  
+- **Architecture** — Controller → Service → Repository with constructor DI; scorers stay pure (no Prisma/Express).  
+- **Weights not on query params** — treated as product config only.  
+- **Review pass** — identified issues such as full-table scans, SkillScorer/eligibility coupling, missing DB salary CHECK, and Docker image bloat; those remain known tradeoffs unless explicitly fixed next.  
+- **README focus** — trimmed from an encyclopedia-style doc to prioritize the scoring formula and how to run/test.
+
+AI accelerated scaffolding and test writing; product rules, exclusions, and final judgment calls were human-directed.
+
+---
+
+## Architecture (short)
+
+```text
+Controller → Service → Repository → Prisma/PostgreSQL
+
+Recommendation:
+  EligibilityChecker → ScoringEngine → [Skill, Experience, Location, Salary] strategies
+```
+
+Modular monolith: one process, clear modules (`candidates`, `jobs`, `recommendations`), shared DB. Chosen over microservices because matching needs both entities in one request and the scale doesn’t justify distributed complexity yet.
+
+---
+
+## Main endpoints
+
+| Method | Path |
+| --- | --- |
+| `GET` | `/health` |
+| `POST` | `/candidates` |
+| `POST` | `/jobs` |
+| `GET` | `/candidates/:candidateId/recommendations?limit=10` |
+| `GET` | `/jobs/:jobId/recommendations?limit=10` |
+
+`limit` defaults to 10, min 1, max 50.
+
+Errors use stable codes such as `VALIDATION_ERROR`, `INVALID_LIMIT`, `CANDIDATE_NOT_FOUND`, `JOB_NOT_FOUND`.
